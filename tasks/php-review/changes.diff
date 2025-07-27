@@ -1,0 +1,286 @@
+diff --git a/ajax/edit.php b/ajax/edit.php
+index 3fe07006b0..37dc40a7f3 100644
+--- a/ajax/edit.php
++++ b/ajax/edit.php
+@@ -1,110 +1,3 @@
+ <?php
+ 
+-use TV\API;
+-
+-$startTime = microtime(true);
+-
+-try {
+-	tStart();
+-
+-	$module = req('module', '', true);
+-	$oper = req('oper', '', true);
+-	if (!is_string($oper)) $oper = '--';
+-} catch (Exception $Exception) {
+-	core()->error($Exception->getMessage(), null, $Exception->getCode());
+-	core()->exception_json();
+-}
+-
+-$func = req('func'); // Функция модуля, отвечающая за получения данных
+-if (!$func) $func = req('fedit'); // deprecated
+-
+-if ($oper != 'add') {
+-	$id = req('id', '');
+-
+-	// разрешенные значения для $id
+-	if (is_array($id)) {
+-		foreach ($id as $index => $id_i) {
+-			$id[$index] = (int) $id_i;
+-		}
+-	} elseif (!is_numeric($id)) {
+-		$id = explode(',', $id);
+-		foreach ($id as $index => $id_i) {
+-			$id[$index] = (int) $id_i;
+-		}
+-		$id = implode(',', $id);
+-
+-		if (!$id) $id = (int) $id;
+-	} else {
+-		$id = (int) $id;
+-	}
+-}
+-
+-$memoryLimit = ini_get('memory_limit');
+-ini_set('memory_limit', '64M');
+-
+-$data = [];
+-foreach ($_POST as $index => $val) {
+-	if (
+-		$index == 'ssi' ||
+-		$index == 'id' ||
+-		$index == 'module' ||
+-		$index == 'oper' ||
+-		$index == 'func' ||
+-		$index == 'type_result' ||
+-		$index == 'api_key' ||
+-		$index == 'app_auth'
+-	) {
+-		continue;
+-	}
+-	$data[$index] = sanitize($val);
+-}
+-ini_set('memory_limit', $memoryLimit);
+-
+-try {
+-	$isNewServicesSchema = preg_match('~_2$~', $module);
+-	if ($isNewServicesSchema) {
+-		$result = API\Entry::call($oper, $module, $func, $_REQUEST);
+-	} else {
+-		switch ($oper) {
+-			case 'add':
+-				$result = m($module)->add($data, $func);
+-
+-				break;
+-			case 'edit':
+-				$result = m($module)->edit($data, $id, $func);
+-
+-				break;
+-			case 'del':
+-				$result = m($module)->del($id, $func);
+-
+-				break;
+-			default:
+-				throw new Exception('Unknown oper', ERROR_CODE_OPERATOR);
+-		}
+-	}
+-} catch (Exception $Exception) {
+-	if ($Exception->getMessage() || $Exception->getCode()) {
+-		if ($Exception instanceof TV\Exception) {
+-			core()->error($Exception->getMessage(), $Exception->details, $Exception->getCode());
+-		} else {
+-			core()->error($Exception->getMessage(), null, $Exception->getCode());
+-		}
+-	}
+-
+-	$result = 0;
+-}
+-
+-Core::$metrics['total'] = microtime(true) - $startTime;
+-
+-core()->addHeadersMetrics();
+-
+-Core::$metadata['oper'] = $oper;
+-core()->addHeadersMetadata();
+-
+-if ($result === false or $result === null) $result = 0;
+-
+-core()->exception_json($result);
++include __DIR__ . '/get.php';
+diff --git a/ajax/get.php b/ajax/get.php
+index ea4b980a95..751faf5f5d 100644
+--- a/ajax/get.php
++++ b/ajax/get.php
+@@ -12,28 +12,78 @@ try {
+ 
+ 	tStart();
+ 
+-	$module = request('module', '', true);
+-
+-	if (isset($_POST['page']) and $_POST['page'] < 1 or isset($_REQUEST['page']) and $_REQUEST['page'] < 1) {
+-		throw new Exception(
+-			"'Page' must be greater than zero",
+-		);
+-	}
++	$module = req('module', '', true);
++	// todo: сделать обязательным после обновления всего js кода на `API.gen()`
++	$oper = r_exp('oper', 'get', false, ['get', 'add', 'edit', 'del']);
++	if (!is_string($oper)) $oper = '--';
+ } catch (Exception $Exception) {
+ 	core()->error($Exception->getMessage(), null, $Exception->getCode());
+ 	core()->exception_json();
+ }
+ 
+-// ====================== ПОДГОТОВКА ЗАПРОСА ======================
++/**
++ * Генерирует данные, очищая значения входного массива и исключая системные параметры API
++ *
++ * @return array Очищенные данные из входного массива
++ */
++function genData(): array {
++	$memoryLimit = ini_get('memory_limit');
++	ini_set('memory_limit', '64M');
++
++	$data = [];
++	foreach ($_POST as $index => $val) {
++		if (
++			$index == 'ssi' ||
++			$index == 'id' ||
++			$index == 'module' ||
++			$index == 'oper' ||
++			$index == 'func' ||
++			$index == 'type_result' ||
++			$index == 'api_key' ||
++			$index == 'app_auth'
++		) {
++			continue;
++		}
++
++		$data[$index] = sanitize($val);
++	}
++	ini_set('memory_limit', $memoryLimit);
++
++	return $data;
++}
++
++if ($oper === 'get') {
++	$getList = req('getList'); // Имя колонки, выводимой в результате, если необходимо вывести список только по одной колонке
++	$getList = Mysql::prepare_column_name($getList);
++
++	$getFormat = req('getFormat'); // Формат вывода данных
++}
++
++if ($oper === 'edit' || $oper === 'del') {
++	$id = req('id', '');
+ 
+-$getList = req('getList'); // Имя колонки, выводимой в результате, если необходимо вывести список только по одной колонке
+-$getList = Mysql::prepare_column_name($getList);
++	// разрешенные значения для $id
++	if (is_array($id)) {
++		// todo: убрать поддержку передачи id как массива и удалить
++		foreach ($id as $index => $id_i) {
++			$id[$index] = (int) $id_i;
++		}
++	} elseif (!is_numeric($id)) {
++		// todo: удалить после обновление API v2 на новый формат 2025
++		$id = explode(',', $id);
++		foreach ($id as $index => $id_i) {
++			$id[$index] = (int) $id_i;
++		}
++		$id = implode(',', $id);
+ 
+-$getFormat = req('getFormat', 'json_pager'); // Формат вывода данных
++		if (!$id) $id = (int) $id;
++	} else {
++		$id = (int) $id;
++	}
++}
+ 
+-$func = request('func'); // Функция модуля, отвечающая за получения данных
+-if (!$func) $func = request('fget'); // deprecated
+-if (!is_string($func)) $func = '--';
++$func = req('func'); // Функция модуля, отвечающая за получения данных
++if (!is_string($func)) $func = '';
+ 
+ $limit = (int) request('rows', 0); // Количество элементов на странице
+ if (!$limit) $limit = (int) request('limit', 0); // Количество элементов на странице
+@@ -58,23 +108,45 @@ try {
+ 	$isNewServicesSchema = preg_match('~_2$~', $module);
+ 
+ 	if ($isNewServicesSchema) {
+-		$result = API\Entry::call('get', $module, $func, $_REQUEST);
++		$result = API\Entry::call($oper, $module, $func, $_REQUEST);
+ 	} else {
+ 		$result = m($module)->get('', $limitSql, $o, $func);
++		switch ($oper) {
++			case 'get':
++
++				break;
++			case 'add':
++				$data = genData();
++				$result = m($module)->add($data, $func);
++
++				break;
++			case 'edit':
++				$data = genData();
++				$result = m($module)->edit($data, $id, $func);
++
++				break;
++			default:
++				exit();
++		}
+ 	}
+ 
+-	if ($getFormat != 'apiV2') $result = (array) $result;
++	if ($oper === 'get') {
++		if ($getFormat === 'tpl') $result = (array) $result;
+ 
+-	if (is_array($result) and isset($result[0]) and is_array($result[0]) and isset($result[0]['total'])) {
+-		$total = (int) $result[0]['total'];
+-		array_shift($result);
+-	} else {
+-		if (!is_null(core()->resultTotal)) {
+-			$total = core()->resultTotal;
+-		} else $total = (int) dbh()->selFoundRows();
+-
+-		if (is_array($result)) {
+-			if (count($result) > $total) $total = count($result);
++		if (is_array($result) and isset($result[0]) and is_array($result[0]) and isset($result[0]['total'])) {
++			// todo: заменить во всем коде установку `total` в таком виде на `core()->setResultTotal()`
++			$total = (int) $result[0]['total'];
++			array_shift($result);
++		} else {
++			if (!is_null(core()->resultTotal)) {
++				$total = core()->resultTotal;
++			} else {
++				$total = (int) dbh()->selFoundRows();
++			}
++
++			if (is_array($result)) {
++				if (count($result) > $total) $total = count($result);
++			}
+ 		}
+ 	}
+ } catch (Exception $Exception) {
+@@ -93,10 +165,16 @@ Core::$metrics['total'] = microtime(true) - $startTime;
+ 
+ core()->addHeadersMetrics();
+ 
+-Core::$metadata['oper'] = 'get';
++Core::$metadata['oper'] = $oper;
+ core()->addHeadersMetadata();
+ 
+ // вывести ошибку, без формирования результата
+ if (core()->errors) core()->exception_json();
+ 
+-include_once('get.results.php');
++if ($oper === 'get') {
++	include_once('get.results.php');
++} else {
++	if ($result === false or $result === null) $result = 0;
++
++	core()->exception_json($result);
++}
