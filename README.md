@@ -28,7 +28,7 @@
 **Категории заданий:**
 
 - Входной тест на внимательность и
-  логику: https://docs.google.com/forms/d/e/1FAIpQLSd8TsT9P1mYPRkf0OQvghPz6-NwVIZrgZeCokSlhv5VKsmjvg/viewform
+  логику: https://docs.google.com/forms/d/1aUy81xY2LiNMZ03ynODtzejxPudDNIaAAvtbuY7-sdM/
 - **PHP**: Задачи, проверяющие знание языка PHP, алгоритмов и ООП.
 - **JavaScript**: Задачи, ориентированные на программирование на JavaScript, включая работу с DOM, асинхронность и
   алгоритмы.
